@@ -55,6 +55,7 @@
            :sftp-list-directory
            :sftp-get
            :sftp-delete
+           :sftp-put
 
            ;; STREAMS API // BLOCKING
 
