@@ -53,6 +53,8 @@
 
            ;; SFTP
            :sftp-list-directory
+           :sftp-get
+           :sftp-delete
 
            ;; STREAMS API // BLOCKING
 
