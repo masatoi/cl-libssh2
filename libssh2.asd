@@ -16,7 +16,8 @@
                  :hu.dwim.logger
                  :split-sequence
                  :trivial-gray-streams
-                 :usocket)
+                 :usocket
+                 :alexandria)
   :serial       t
   :components   ((:module "src"
                   :serial t

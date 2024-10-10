@@ -2,6 +2,9 @@
 
 (defpackage :libssh2
   (:use :cffi :cl :trivial-gray-streams)
+  (:import-from :alexandria
+                :copy-stream
+                :remove-from-plist)
   (:export ;; LIBSSH2 API
            :with-session
            :session-init

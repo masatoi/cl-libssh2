@@ -56,27 +56,6 @@ It is possible to combine `MAXFILES' and `EXTENSIONS' (retrieve 5 files with ext
 
 (defconstant +sftp-read-buffer-size+ 1000000)
 
-;; TODO: refactor some of the commonalities into a macro?
-(defun sftp-get (ssh-connection remote-path local-path)
-  "Receive a remote file `PATH' on the server to which we are connected with `SSH-CONNECTION' to a local file at `LOCAL-PATH'."
-  (with-sftp (sftp ssh-connection)
-    (let ((handle)
-          (buffer))
-      (unwind-protect
-        (progn
-          (ssh2.debug "Trying to retrieve remote file ~A to local file ~A" remote-path local-path))
-          (setf handle (libssh2-sftp-open-ex sftp remote-path (foreign-bitfield-value 'sftp-flags '(:read)) 0 :file))
-          (setf buffer (foreign-alloc :char :count +sftp-read-buffer-size+ :initial-element 0))
-          (with-open-file (out local-path :direction :output :if-exists :supersede :element-type '(signed-byte 8))
-            (loop for numbytes = (libssh2-sftp-read handle buffer +sftp-read-buffer-size+)
-                  do (ssh2.dribble "libssh2-sftp-read returned numbytes=~A" numbytes)
-                  while (> numbytes 0)
-                  do
-                  (write-sequence (cffi:convert-from-foreign buffer `(:array :char ,numbytes)) out)))
-          (ssh2.debug "Remote file ~A was written to ~A" remote-path local-path))
-        (when handle (libssh2-sftp-close-handle handle))
-        (when buffer (foreign-free buffer)))))
-
 (defun sftp-delete (ssh-connection remote-path)
   "Delete a remote file `PATH' on the server to which we are connected with `SSH-CONNECTION'."
   (with-sftp (sftp ssh-connection)
@@ -84,20 +63,156 @@ It is possible to combine `MAXFILES' and `EXTENSIONS' (retrieve 5 files with ext
     (let ((result (libssh2-sftp-unlink-ex sftp remote-path)))
       (ssh2.debug "Deleting ~A resulted in ~A." remote-path result))))
 
-(defun sftp-put (ssh-connection local-path remote-path &key (modes #o644))
+(defclass sftp-stream (fundamental-stream)
+  ((remote-path :initarg :remote-path
+                :accessor sftp-stream-remote-path)
+   (direction :initarg :direction
+              :reader sftp-stream-direction)
+   (session :initarg :session
+            :initform *sftp-session*
+            :accessor sftp-stream-session)
+   (handle :accessor sftp-stream-handle)))
+
+(defclass sftp-input-stream (sftp-stream fundamental-input-stream) ()
+  (:default-initargs
+   :direction :input))
+
+(defclass sftp-output-stream (sftp-stream fundamental-output-stream) ()
+  (:default-initargs
+   :direction :output))
+
+(defmethod initialize-instance :after ((stream sftp-input-stream) &key remote-path)
+  (setf (sftp-stream-handle stream)
+        (libssh2-sftp-open-ex (sftp-stream-session stream)
+                              remote-path
+                              (foreign-bitfield-value 'sftp-flags '(:read))
+                              0
+                              :file))
+  stream)
+
+(defmethod initialize-instance :after ((stream sftp-output-stream) &key remote-path (if-exists :error) (if-does-not-exist :create) (file-mode #o644))
+  (setf (sftp-stream-handle stream)
+        (libssh2-sftp-open-ex (sftp-stream-session stream)
+                              remote-path
+                              (foreign-bitfield-value 'sftp-flags
+                                                      `(:write
+                                                        ,@(ecase if-exists
+                                                            (:supersede
+                                                             '(:trunc))
+                                                            (:append
+                                                             '(:append))
+                                                            (:error
+                                                             '(:excl))
+                                                            (:overwrite))
+                                                        ,@(ecase if-does-not-exist
+                                                            (:create
+                                                             '(:creat))
+                                                            (:error))))
+                              file-mode
+                              :file))
+  stream)
+
+(defun sftp-stream-open-p (stream)
+  (slot-boundp stream 'handle))
+
+(defun close-sftp-stream (stream)
+  (unless (sftp-stream-open-p stream)
+    (error "SFTP stream is already closed."))
+  (libssh2-sftp-close-handle (sftp-stream-handle stream))
+  (values))
+
+(defmethod stream-read-byte ((stream sftp-input-stream))
+  (cffi:with-foreign-pointer (buffer 1)
+    (if (= 1 (libssh2-sftp-read (sftp-stream-handle stream)
+                                buffer
+                                1))
+        (cffi:mem-aref buffer :uint8 0)
+        nil)))
+
+(defmethod stream-element-type ((stream sftp-stream))
+  '(unsigned-byte 8))
+
+(defmethod stream-read-sequence ((stream sftp-input-stream) sequence start end &key &allow-other-keys)
+  (let* ((max-size (- end start))
+         (buffer-size (min max-size +sftp-read-buffer-size+)))
+    (cffi:with-foreign-pointer (buffer buffer-size)
+      (loop with index = start
+            for read-bytes = (libssh2-sftp-read (sftp-stream-handle stream)
+                                                buffer
+                                                buffer-size)
+            until (zerop read-bytes)
+            do (loop repeat read-bytes
+                     for i from index
+                     for j from 0
+                     do (setf (aref sequence i)
+                              (cffi:mem-aref buffer :uint8 j)))
+               (incf index read-bytes)
+            while (< index max-size)
+            finally (return index)))))
+
+(defmethod stream-write-byte ((stream sftp-output-stream) byte)
+  (cffi:with-foreign-pointer (buffer 1)
+    (cffi:mem-aref buffer :uint8 byte)
+    (libssh2-sftp-write (sftp-stream-handle stream)
+                        buffer
+                        1))
+  byte)
+
+(defmethod stream-write-sequence ((stream sftp-output-stream) sequence start end &key &allow-other-keys)
+  (let* ((size (- end start))
+         (buffer-size (min size +sftp-read-buffer-size+)))
+    (cffi:with-foreign-pointer (buffer buffer-size)
+      (loop for s = start then e
+            for e = (min end (+ s buffer-size))
+            do (loop for i from s below e
+                     for j from 0
+                     do (setf (cffi:mem-aref buffer :uint8 j)
+                              (aref sequence i))
+                     finally
+                        (libssh2-sftp-write (sftp-stream-handle stream)
+                                            buffer
+                                            (1+ j)))
+            while (< e end)))
+    sequence))
+
+(defun call-with-sftp-open-file (fn remote-path
+                                 &rest open-initargs
+                                 &key (direction :input)
+                                 &allow-other-keys)
+  (let ((stream
+          (apply #'make-instance (ecase direction
+                                   (:input 'sftp-input-stream)
+                                   (:output 'sftp-output-stream))
+                 :remote-path remote-path
+                 (remove-from-plist open-initargs :direction))))
+    (unwind-protect
+         (funcall fn stream)
+      (when (sftp-stream-open-p stream)
+        (close-sftp-stream stream)))))
+
+(defmacro with-sftp-open-file ((stream remote-path
+                                &rest open-initargs
+                                &key direction if-exists if-does-not-exist file-mode)
+                               &body body)
+  (declare (ignore direction if-exists if-does-not-exist file-mode))
+  `(call-with-sftp-open-file
+    (lambda (,stream) ,@body)
+    ,remote-path
+    ,@open-initargs))
+
+(defun sftp-put (ssh-connection local-path remote-path &key (mode #o644))
   (with-sftp (sftp ssh-connection)
-    (let ((handle))
-      (unwind-protect
-           (progn
-             (ssh2.debug "Trying to send local file ~A to remote file ~A" local-path remote-path)
-             (setf handle (libssh2-sftp-open-ex sftp remote-path
-                                                (foreign-bitfield-value 'sftp-flags '(:write :creat :trunc))
-                                                modes
-                                                :file))
-             (with-open-file (in local-path :direction :input :element-type '(unsigned-byte 8))
-               (let ((buffer (make-array 1024 :element-type '(unsigned-byte 8))))
-                 (loop for numbytes = (read-sequence buffer in)
-                       until (zerop numbytes)
-                       do (cffi:with-foreign-array (array buffer `(:array :uint8 ,numbytes)) (libssh2-sftp-write handle array numbytes)))))
-             (ssh2.debug "Local file ~A was written to ~A" local-path remote-path)))
-      (when handle (libssh2-sftp-close-handle handle)))))
+    (with-open-file (in local-path :direction :input :element-type '(unsigned-byte 8))
+      (with-sftp-open-file (out remote-path
+                                :direction :output
+                                :if-exists :supersede
+                                :if-does-not-exist :create
+                                :file-mode mode)
+        (copy-stream in out)))))
+
+(defun sftp-get (ssh-connection remote-path local-path)
+  "Receive a remote file `PATH' on the server to which we are connected with `SSH-CONNECTION' to a local file at `LOCAL-PATH'."
+  (with-sftp (sftp ssh-connection)
+    (with-open-file (out local-path :direction :output :element-type '(unsigned-byte 8))
+      (with-sftp-open-file (in remote-path)
+        (copy-stream in out)))))
