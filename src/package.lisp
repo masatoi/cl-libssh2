@@ -165,13 +165,4 @@
            :*CHANNEL-READ-ZERO-AS-EOF*
            :*ERRORS-LIST*
            :*DEFAULT-ERRORS-LIST*)
-    (:import-from #:hu.dwim.logger
-                #:+dribble+
-                #:+debug+
-                #:+info+
-                #:+warn+
-                #:+error+
-                #:+fatal+
-                #:deflogger
-                #:find-logger
-                #:log-level))
+)

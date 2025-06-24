@@ -2,12 +2,24 @@
 
 (in-package :libssh2)
 
-(deflogger ssh2 ()
-  :runtime-level +info+
-  :compile-time-level +debug+
-  :documentation "The logger for this library, use the macros
-  ssh2.{dribble|debug|info|warn|error|fatal} for logging.
+;; Define logger categories
+(log:config :info)
 
-To increase the verbosity:
+;; Define logging macros for different levels
+(defmacro ssh2.dribble (format-string &rest args)
+  `(log:debug ,format-string ,@args))
 
- (setf (hu.dwim.logger::log-level (hu.dwim.rdbms::find-logger 'libssh2::ssh2)) hu.dwim.logger:+debug+)")
+(defmacro ssh2.debug (format-string &rest args)
+  `(log:debug ,format-string ,@args))
+
+(defmacro ssh2.info (format-string &rest args)
+  `(log:info ,format-string ,@args))
+
+(defmacro ssh2.warn (format-string &rest args)
+  `(log:warn ,format-string ,@args))
+
+(defmacro ssh2.error (format-string &rest args)
+  `(log:error ,format-string ,@args))
+
+(defmacro ssh2.fatal (format-string &rest args)
+  `(log:fatal ,format-string ,@args))

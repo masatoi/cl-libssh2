@@ -13,7 +13,7 @@
   :depends-on   (:babel
                  :cffi
                  :cl-fad
-                 :hu.dwim.logger
+                 :log4cl
                  :split-sequence
                  :trivial-gray-streams
                  :usocket
