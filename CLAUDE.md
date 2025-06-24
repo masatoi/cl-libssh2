@@ -20,17 +20,18 @@ This is `cl-libssh2`, a Common Lisp wrapper around the libssh2 C library for SSH
 (libssh2.test:run-all-tests)
 
 ;; Run only unit tests (no SSH server required)
-(libssh2.test:unit)
+(libssh2.test:run-unit-tests)
 
 ;; Run integration tests (requires SSH server)
-(libssh2.test:integration)
+(libssh2.test:run-integration-tests)
 ```
 
 ### Test System
-- Uses `hu.dwim.stefil` testing framework
-- Unit tests in `unit` suite don't require external SSH server
-- Integration tests in `integration` suite require SSH server setup
+- Uses `rove` testing framework
+- Unit tests in `libssh2.test.unit` package don't require external SSH server
+- Integration tests in `libssh2.test.integration` package require SSH server setup
 - Test configuration uses parameters: `*test-host*`, `*user1*`, `*password1*`, `*user2*`, `*password2*`
+- CI/CD runs on GitHub Actions with matrix testing across SBCL, CCL, and ECL
 
 ## Architecture
 
@@ -78,4 +79,4 @@ This is `cl-libssh2`, a Common Lisp wrapper around the libssh2 C library for SSH
 - `trivial-gray-streams`: Stream protocol implementation
 - `usocket`: Network socket abstraction
 - `log4cl`: Logging framework
-- `hu.dwim.stefil`: Testing framework (tests only)
+- `rove`: Testing framework (tests only)

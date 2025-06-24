@@ -3,7 +3,7 @@
 (in-package #:cl-user)
 
 (defpackage #:libssh2.test
-  (:use #:common-lisp #:libssh2 #:hu.dwim.stefil)
+  (:use #:common-lisp #:libssh2 #:rove)
   (:export #:run-unit-tests
            #:run-integration-tests
            #:run-all-tests))
@@ -12,19 +12,30 @@
 
 ;; The suite 'unit' is used for real unit tests which just test the code
 ;; and don't depend on the presence of an SSH server
-(defsuite* (unit :in root-suite))
+(defpackage #:libssh2.test.unit
+  (:use #:common-lisp #:libssh2 #:rove))
 
 ;; The suite 'integration' is used for integration tests which depend on an
 ;; SSH server and some previously created users
-(defsuite* (integration :in root-suite))
+(defpackage #:libssh2.test.integration
+  (:use #:common-lisp #:libssh2 #:rove))
 
 (defun run-all-tests ()
   (handler-bind ((libssh2::known-hosts-reading-error (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
                  (libssh2::ssh-unknown-hostkey (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
                  (libssh2::ssh-authentication-failure (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t)))
     (progn
-      (unit)
-      (integration))))
+      (run 'libssh2.test.unit)
+      (run 'libssh2.test.integration))))
+
+(defun run-unit-tests ()
+  (run 'libssh2.test.unit))
+
+(defun run-integration-tests ()
+  (handler-bind ((libssh2::known-hosts-reading-error (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
+                 (libssh2::ssh-unknown-hostkey (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t))
+                 (libssh2::ssh-authentication-failure (lambda (c) (declare (ignore c)) (invoke-restart 'accept-always) t)))
+    (run 'libssh2.test.integration)))
 
 (defparameter *known-hosts-path* (namestring
                                   (merge-pathnames

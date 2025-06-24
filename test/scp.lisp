@@ -1,14 +1,12 @@
 ;;; -*- mode: lisp; syntax: common-lisp; indent-tabs-mode: nil -*-
 
-(in-package #:libssh2.test)
-
-(in-suite integration)
+(in-package #:libssh2.test.integration)
 
 (deftest scp-copy-back-and-forth ()
   (with-ssh-connection sshc
-     (*test-host*
-     (libssh2:make-password-auth *user1* *password1*)
-     :hosts-db *known-hosts-path*)
+     (libssh2.test::*test-host*
+     (libssh2:make-password-auth libssh2.test::*user1* libssh2.test::*password1*)
+     :hosts-db libssh2.test::*known-hosts-path*)
     (let ((test-file (asdf:system-relative-pathname (asdf:find-system :libssh2) "test/data/testfile.tgz"))
           (remote-name "/tmp/copied-to-remote.tgz")
           (final "/tmp/copied-back-from-remote.tgz")
@@ -23,4 +21,4 @@
                           while line
                           do (format t "~%<~A>~%" (split-sequence:split-sequence #\Space line))
                           collect (car (split-sequence:split-sequence #\Space line)))))
-          (is (every (lambda (s) (equal s md5)) sums) "MD5 sums of local and remote files differ"))))))
+          (ok (every (lambda (s) (equal s md5)) sums) "MD5 sums of local and remote files differ"))))))

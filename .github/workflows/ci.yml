@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lisp: [sbcl-bin, ccl-bin, ecl]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openssh-server openssl libssh2-1-dev
+        
+    - name: Setup SSH server for testing
+      run: |
+        # Create test users
+        sudo groupadd ssh2test
+        sudo useradd -g ssh2test -p $(openssl passwd "test1") test1
+        sudo useradd -g ssh2test -p $(openssl passwd "test2") test2
+        
+        # Start SSH service
+        sudo service ssh start
+        
+        # Generate SSH host keys if they don't exist
+        sudo ssh-keygen -A
+        
+        # Allow password authentication for testing
+        sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+        sudo service ssh restart
+        
+    - name: Install Roswell
+      env:
+        ROSWELL_BRANCH: release
+      run: |
+        curl -L https://raw.githubusercontent.com/roswell/roswell/master/scripts/install-for-ci.sh | sh
+        echo "$HOME/.roswell/bin" >> $GITHUB_PATH
+        
+    - name: Setup Lisp environment
+      run: |
+        ros install ${{ matrix.lisp }}
+        ros use ${{ matrix.lisp }}
+        
+    - name: Install dependencies and run tests
+      run: |
+        ros -e '(ql:quickload :rove)'
+        ros -e '(ql:quickload :cffi-grovel)'
+        ros -e '(ql:quickload :libssh2.test)'
+        ros -e '(setf libssh2.test::*user1* "test1" libssh2.test::*password1* "test1")'
+        ros -e '(setf libssh2.test::*user2* "test2" libssh2.test::*password2* "test2")'
+        ros -e '(libssh2.test:run-all-tests)'
+        
+    - name: Run unit tests only
+      run: |
+        ros -e '(ql:quickload :libssh2.test)'
+        ros -e '(libssh2.test:run-unit-tests)'
